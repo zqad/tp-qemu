@@ -30,10 +30,18 @@ def run(test, params, env):
     vm.verify_alive()
     timeout = int(params.get("login_timeout", 360))
     session = vm.wait_for_login(timeout=timeout)
+    vm_params = params
 
     error.context("Set guest run level to 1", logging.info)
-    single_user_cmd = params['single_user_cmd']
-    session.cmd(single_user_cmd)
+    if params.get("kernel", False):
+        # If the configuration has a kernel argument, we are using qemu as a
+        # bootloader and can just modify the kernel_params variable
+        vm_params = params.copy()
+        vm_params.update({'kernel_params':
+                          "%s S" % params.get("kernel_params")})
+    else:
+        single_user_cmd = params['single_user_cmd']
+        session.cmd(single_user_cmd)
 
     try:
         error.context("Shut down guest", logging.info)
@@ -42,7 +50,7 @@ def run(test, params, env):
 
         error.context("Boot up guest and measure the boot time", logging.info)
         utils_memory.drop_caches()
-        vm.create()
+        vm.create(params=vm_params)
         vm.verify_alive()
         session = vm.wait_for_serial_login(timeout=timeout)
         boot_time = utils_misc.monotonic_time() - vm.start_monotonic_time
@@ -54,8 +62,9 @@ def run(test, params, env):
         try:
             error.context("Restore guest run level", logging.info)
             restore_level_cmd = params['restore_level_cmd']
-            session.cmd(restore_level_cmd)
-            session.cmd('sync')
+            if not params.get("kernel", False):
+                session.cmd(restore_level_cmd)
+                session.cmd('sync')
             vm.destroy(gracefully=False)
             env_process.preprocess_vm(test, params, env, vm.name)
             vm.verify_alive()
